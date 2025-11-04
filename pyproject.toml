@@ -1,0 +1,15 @@
+[tool.mypy]
+ignore_missing_imports = true
+mypy_path = ["src/services"]
+
+[project]
+name = "Taxi Price Predictor"
+version = "0.0.1"
+description = "MLOps проект для работы с CI/CD"
+requires-python = ">=3.12"
+
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "--tb=short -q"
+testpaths = ["tests"]

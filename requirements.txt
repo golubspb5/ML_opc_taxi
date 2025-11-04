@@ -1,0 +1,12 @@
+fastapi>=0.115.12
+uvicorn>=0.34.2
+scikit-learn>=1.6.1
+pandas>=2.2.3
+numpy>=2.2.5
+joblib>=1.4.2
+mypy~=1.17.1
+pytest~=8.4.0
+httpx~=0.28.1
+s3fs==2025.7.0
+pandera==0.24.0
+ruff==0.12.10

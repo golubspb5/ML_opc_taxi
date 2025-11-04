@@ -1,0 +1,50 @@
+# Виртуальное окружение
+.venv/
+
+# Кэш mypy
+.mypy_cache/
+
+# Скомпилированные Python файлы
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Пикл-файлы моделей
+*.pkl
+
+# Zip архивы
+*.zip
+
+# egg-info
+**/*.egg-info/
+
+# Файлы блокировки pip, poetry и др.
+*.lock
+
+# Файл с переменными окружения
+.env
+
+# Каталоги сборки и установки
+build/
+dist/
+eggs/
+parts/
+bin/
+var/
+sdist/
+wheels/
+
+# IDE и редакторы
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.bak
+
+# Файлы метаданных
+.DS_Store
+Thumbs.db

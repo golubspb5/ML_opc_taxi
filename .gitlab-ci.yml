@@ -1,0 +1,59 @@
+stages:
+  - test
+  - build
+
+variables:
+  DOCKER_DRIVER: overlay2
+
+test:
+  stage: test
+  image: python:3.12-bookworm
+  
+  services:
+    - name: docker:dind
+      alias: docker
+
+  before_script:
+    - pip install -U pip
+    - pip install -r requirements.txt
+
+  script:
+    - echo "Запуск юнит-тестов..."
+    - pytest tests/ -v --junitxml=pytest-report.xml
+    
+    - echo "Сборка Docker-образа..."
+    - docker build -t taxi-app .
+    
+    - echo "Запуск контейнера..."
+    - docker run -d -p 32000:32000 --name taxi-app-container taxi-app
+    - sleep 30
+    
+    - echo "Проверка здоровья приложения..."
+    - curl -f http://localhost:32000/ || echo "Приложение не ответило"
+    
+    - echo "Проверка документации..."
+    - curl -f http://localhost:32000/docs || echo "Документация не доступна"
+
+  after_script:
+    - docker stop taxi-app-container || true
+    - docker rm taxi-app-container || true
+
+  artifacts:
+    when: always
+    paths:
+      - pytest-report.xml
+    expire_in: 1 week
+
+build:
+  stage: build
+  image: docker:26
+  services:
+    - name: docker:26-dind
+      alias: docker
+
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
