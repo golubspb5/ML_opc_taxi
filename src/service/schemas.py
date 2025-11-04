@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from typing import List
 
 
 class PredictionRequest(BaseModel):
@@ -12,8 +11,8 @@ class PredictionRequest(BaseModel):
 
 # Для списка запросов
 class BatchPredictionRequest(BaseModel):
-    data: List[PredictionRequest]
+    data: list[PredictionRequest]
 
 
 class PredictionResponse(BaseModel):
-    predictions: List[str]
+    predictions: list[str]
