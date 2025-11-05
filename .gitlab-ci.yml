@@ -1,28 +1,21 @@
-stages: [test, build]
-
-variables:
-  DOCKER_DRIVER: overlay2
+stages:
+  - test
+  - build
 
 test:
   stage: test
-  image: python:3.12-bookworm
-  before_script:
-    - pip install -U pip
-    - pip install -r requirements.txt
+  image: python:3.12
   script:
-    - pytest -q
+    - pip install -r requirements.txt
     - python src/service/train_and_save_model.py
-  artifacts:
-    when: always
-    paths: [pytest-report.xml]
-    expire_in: 1 week
+    - pytest tests/ -v
 
 build:
   stage: build
-  image: docker:26
-  services: [docker:26-dind]
+  image: docker:latest
+  services:
+    - docker:dind
   script:
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
-  rules:
-    - if: $CI_COMMIT_BRANCH
+    - docker build -t taxi-app .
+  only:
+    - main
