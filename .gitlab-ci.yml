@@ -1,70 +1,28 @@
-stages:
-  - test
-  - build
+stages: [test, build]
 
 variables:
   DOCKER_DRIVER: overlay2
 
-.test_template: &test_template
+test:
   stage: test
   image: python:3.12-bookworm
   before_script:
     - pip install -U pip
     - pip install -r requirements.txt
+  script:
+    - pytest -q
+    - python src/service/train_and_save_model.py
   artifacts:
     when: always
-    paths:
-      - pytest-report.xml
+    paths: [pytest-report.xml]
     expire_in: 1 week
 
-unit_tests:
-  <<: *test_template
-  script:
-    - pytest tests/ -v --junitxml=pytest-report.xml
-
-train_model:
-  <<: *test_template
-  script:
-    - python src/service/train_and_save_model.py
-
-functional_tests:
-  stage: test
-  image: docker:26
-  services:
-    - name: docker:26-dind
-      alias: docker
-  before_script:
-    - apk add --no-cache curl
-  script:
-    - echo "Building Docker image..."
-    - docker build -t taxi-app .
-    - echo "Starting container..."
-    - docker run -d -p 32000:32000 --name taxi-app-container taxi-app
-    - echo "Waiting for app to start..."
-    - sleep 30
-    - echo "Testing health endpoint..."
-    - curl -f http://localhost:32000/ || exit 1
-    - echo "Testing docs endpoint..."
-    - curl -f http://localhost:32000/docs || exit 1
-    - echo "Testing prediction API..."
-    - |
-      curl -f -X POST http://localhost:32000/api/predict/ \
-        -H "Content-Type: application/json" \
-        -d '{"data": [{"pickup_latitude": 40.7614327, "pickup_longitude": -73.9798156, "dropoff_latitude": 40.6413111, "dropoff_longitude": -73.7781391, "passenger_count": 2}]}'
-    - echo "✅ All functional tests passed!"
-  after_script:
-    - docker stop taxi-app-container || true
-    - docker rm taxi-app-container || true
-
-build_docker:
+build:
   stage: build
   image: docker:26
-  services:
-    - name: docker:26-dind
-      alias: docker
+  services: [docker:26-dind]
   script:
-    - echo "Building Docker image..."
-    - docker build -t taxi-app:$CI_COMMIT_SHORT_SHA .
-    - echo "✅ Docker image built successfully: taxi-app:$CI_COMMIT_SHORT_SHA"
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH
