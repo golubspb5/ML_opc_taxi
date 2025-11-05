@@ -47,9 +47,7 @@ functional_tests:
     - echo "Testing docs endpoint..."
     - curl -f http://localhost:32000/docs || exit 1
     - echo "Testing prediction API..."
-    - curl -f -X POST http://localhost:32000/api/predict/ \
-        -H 'Content-Type: application/json' \
-        -d '{"data": [{"pickup_latitude": 40.7614327, "pickup_longitude": -73.9798156, "dropoff_latitude": 40.6413111, "dropoff_longitude": -73.7781391, "passenger_count": 2}]}' || exit 1
+    - curl -f -X POST "http://localhost:32000/api/predict/" -H "Content-Type: application/json" -d '{"data": [{"pickup_latitude": 40.7614327, "pickup_longitude": -73.9798156, "dropoff_latitude": 40.6413111, "dropoff_longitude": -73.7781391, "passenger_count": 2}]}' || exit 1
     - echo "✅ All functional tests passed!"
   after_script:
     - docker stop taxi-app-container || true
