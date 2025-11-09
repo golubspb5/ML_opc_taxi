@@ -1,21 +1,70 @@
 stages:
   - test
   - build
+  - train
+  - deploy
 
+variables:
+  DOCKER_HOST: "tcp://docker:2375/"
+  DOCKER_DRIVER: overlay2
+  REGISTRY: "registry.gitflic.ru/golubspb/ml-opc-taxi"
+
+# ========== TEST ==========
 test:
   stage: test
   image: python:3.12
-  script:
+  services:
+    - name: docker:dind
+      alias: docker
+  before_script:
+    - pip install -U pip
     - pip install -r requirements.txt
-    - python src/service/train_and_save_model.py
-    - pytest tests/ -v
+  script:
+    - pytest -q
+    - bash tests/run_curl_tests.sh
+  artifacts:
+    when: always
+    paths:
+      - pytest-report.xml
+    expire_in: 1 week
 
+# ========== BUILD ==========
 build:
   stage: build
-  image: docker:latest
+  image: docker:26
   services:
-    - docker:dind
+    - docker:26-dind
   script:
-    - docker build -t taxi-app .
-  only:
-    - main
+    - docker login registry.gitflic.ru -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+    - docker build -t $REGISTRY:$CI_COMMIT_SHORT_SHA .
+    - docker push $REGISTRY:$CI_COMMIT_SHORT_SHA
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+# ========== TRAIN MODEL ==========
+train:
+  stage: train
+  image: python:3.12
+  before_script:
+    - pip install -U pip
+    - pip install -r requirements.txt
+  script:
+    - python src/service/train_and_save_model.py --csv src/uber.csv --output model.pkl
+  artifacts:
+    paths:
+      - model.pkl
+    expire_in: 1 week
+
+# ========== DEPLOY (blue-green) ==========
+deploy:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache openssh-client
+    - echo "$SSH_KEY" > id_rsa
+    - chmod 600 id_rsa
+  script:
+    - ssh -o StrictHostKeyChecking=no -i id_rsa $SSH_USER@$SSH_HOST \
+        "bash /opt/taxi/deploy.sh green $CI_COMMIT_SHORT_SHA"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
