@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  ml_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ml_service
+    restart: always
+    ports:
+      - "32000:32000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:32000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    environment:
+      - PYTHONUNBUFFERED=1
+
+    # Монтируем модель в контейнер
+    volumes:
+      - ./src/service/model.pkl:/app/src/service/model.pkl:ro
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx_proxy
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      ml_service:
+        condition: service_healthy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
