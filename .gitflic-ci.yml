@@ -1,71 +1,152 @@
 stages:
-  - build
+  - lint
   - test
-  - push
+  - train
+  - build
+  - integration
   - deploy
 
 variables:
-  REGISTRY: registry.gitflic.ru
-  IMAGE_NAME: ${CI_PROJECT_PATH}/ml_service
-  TAG: latest
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
-# ------------------------------
-# СБОРКА DOCKER ОБРАЗА
-# ------------------------------
-build:
-  stage: build
-  image: docker:latest
-  services:
-    - docker:dind
-  script:
-    - echo "===> Building docker image"
-    - docker build -t $REGISTRY/$IMAGE_NAME:$TAG .
-  artifacts:
-    expire_in: 1 week
-    paths:
-      - .
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .cache/pip
 
-# ------------------------------
-# ЗАПУСК ТЕСТОВ
-# ------------------------------
-test:
-  stage: test
-  image: python:3.12-slim
+
+lint:
+  stage: lint
   before_script:
-    - pip install --no-cache-dir -r requirements.txt
+    - python3 -m venv .venv
+    - .venv/bin/pip install --upgrade pip --quiet
+    - .venv/bin/pip install -q ruff mypy
   script:
-    - echo "===> Running tests"
-    - bash tests/test_service.sh
+    - .venv/bin/ruff check src/ tests/ --fix
+  allow_failure: false
+  only:
+    - main
 
-# ------------------------------
-# PUSH В REGISTRY GITFLIC
-# ------------------------------
-push:
-  stage: push
-  image: docker:latest
-  services:
-    - docker:dind
+
+test_smoke:
+  stage: test
+  needs: 
+    - lint
+  before_script:
+    - python3 -m venv .venv
+    - .venv/bin/pip install --upgrade pip
+    - .venv/bin/pip install -r requirements.txt pytest
   script:
-    - echo "$CI_REGISTRY_PASSWORD" | docker login $REGISTRY -u "$CI_REGISTRY_USER" --password-stdin
-    - docker build -t $REGISTRY/$IMAGE_NAME:$TAG .
-    - docker push $REGISTRY/$IMAGE_NAME:$TAG
+    - .venv/bin/pytest -q tests/test_api_sanity.py
+  only:
+    - main
 
-# ------------------------------
-# SSH ДЕПЛОЙ НА ВИРТУАЛКУ
-# ------------------------------
+
+unit_tests:
+  stage: test
+  needs: 
+    - test_smoke   
+  before_script:
+    - python3 -m venv .venv
+    - .venv/bin/pip install --upgrade pip --quiet
+    - .venv/bin/pip install -q -r requirements.txt pytest
+    - export PYTHONPATH="$CI_PROJECT_DIR"
+  script:
+    - .venv/bin/pytest -q tests/test_taxi.py
+  only:
+    - main
+
+
+train_model:
+  stage: train
+  needs: 
+    - unit_tests 
+  before_script:
+    - python3 -m venv .venv
+    - .venv/bin/pip install --upgrade pip --quiet
+    - .venv/bin/pip install -q -r requirements.txt
+  script:
+    - >
+      .venv/bin/python src/service/train_and_save_model.py
+      --csv src/uber.csv
+      --output src/service/model.pkl
+      --test-size 0.2
+      --random-state 42
+  artifacts:
+    when: always
+    paths:
+      - src/service/model.pkl
+      - metrics/train_metrics.json
+  only:
+    - main
+
+
+build_and_push:
+  stage: build
+  needs:
+    - train_model   
+  script:
+    - echo "Building Docker image..."
+    - echo "IMAGE_NAME='$IMAGE_NAME'"
+    - echo "TAG='$CI_COMMIT_SHA'"
+
+    # логин в registry Gitflic
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" registry.gitflic.ru
+
+    # собираем и пушим образ
+    - docker build -t "$IMAGE_NAME:$CI_COMMIT_SHA" .
+    - docker push "$IMAGE_NAME:$CI_COMMIT_SHA"
+  only:
+    - main
+
+integration_tests:
+  stage: integration
+  needs: 
+    - build_and_push
+  before_script:
+    - python3 -m venv .venv
+    - .venv/bin/pip install -U pip
+    - .venv/bin/pip install pytest requests
+
+  script:
+    - docker pull "$IMAGE_NAME:$CI_COMMIT_SHA" 
+    - docker run -d --name api-test -p 32000:32000 "$IMAGE_NAME:$CI_COMMIT_SHA"
+    - sleep 7
+
+    - echo "=== docker ps -a ==="
+    - docker ps -a || true
+    - echo "=== docker logs api-test ==="
+    - docker logs api-test || true
+    - .venv/bin/pytest -q tests/test_endpoints.py
+  after_script:
+    - docker stop api-test 
+    - docker rm -f api-test 
+  only:
+    - main
+
 deploy:
   stage: deploy
-  image: alpine:latest
-  before_script:
-    - apk update && apk add openssh-client bash sshpass
+  needs:
+    - build_and_push
+
   script:
-    - echo "===> DEPLOY to server"
-    - sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
-        cd $Project_DIR && \
-        git pull && \
-        docker login $REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD && \
-        docker-compose pull && \
-        docker-compose up -d --remove-orphans
+    # переносим ключ из CI
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+    # синк репозитория
+    - rsync -az --exclude 'nginx/conf.d/upstream.conf' 
+      -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" 
+      ./ "$DEPLOY_USER@$DEPLOY_HOST:/opt/uber/"
+
+
+    # запускаем deploy.sh
+    - ssh -o StrictHostKeyChecking=no "$DEPLOY_USER@$DEPLOY_HOST" "
+        cd /opt/uber &&
+        chmod +x scripts/deploy.sh &&
+        ./scripts/deploy.sh \"$CI_COMMIT_SHA\"
       "
   only:
     - main
