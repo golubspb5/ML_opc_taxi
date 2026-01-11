@@ -1,20 +1,23 @@
+
 services:
   proxy:
     image: nginx:alpine
-    container_name: ml-proxy
+    container_name: uber-proxy
     ports:
       - "80:80"
     volumes:
-      - ./nginx/nginx:/etc/nginx/nginx:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - ml_net
     depends_on:
       - app_blue
       - app_green
 
   app_blue:
     image: registry.gitflic.ru/project/golubspb5/ml-opc-taxi/app:${BLUE_TAG}
-    container_name: ml-app-blue
+    container_name: uber-app-blue
     ports:
-      - "5001:32000"          
+      - "5001:32000"
     environment:
       - APP_COLOR=blue
     healthcheck:
@@ -22,12 +25,14 @@ services:
       interval: 10s
       timeout: 2s
       retries: 6
+    networks:
+      - ml_net
 
   app_green:
     image: registry.gitflic.ru/project/golubspb5/ml-opc-taxi/app:${GREEN_TAG}
-    container_name: ml-app-green
+    container_name: uber-app-green
     ports:
-      - "5002:32000"      
+      - "5002:32000"
     environment:
       - APP_COLOR=green
     healthcheck:
@@ -35,3 +40,9 @@ services:
       interval: 10s
       timeout: 2s
       retries: 6
+    networks:
+      - ml_net
+
+networks:
+  ml_net:
+    driver: bridge

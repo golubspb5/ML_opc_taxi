@@ -1,20 +1,15 @@
-import os
 from pathlib import Path
-
+from functools import lru_cache
+import os
 import joblib
 
-MODEL_PATH = os.getenv("MODEL_PATH", Path(__file__).parent / "model.pkl")
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parent / "model.pkl"
 
+def resolve_model_path() -> Path:
+    p = os.getenv("MODEL_PATH")
+    return Path(p) if p else DEFAULT_MODEL_PATH
 
-def load_model() -> object:
-    """
-    Загружает модель из файла. Путь к файлу определяется
-    переменной окружения MODEL_PATH.
-    """
-    try:
-        model = joblib.load(MODEL_PATH)
-        print(f"Model loaded successfully from {MODEL_PATH}")
-        return model
-    except FileNotFoundError:
-        print(f"Error: Model file not found at {MODEL_PATH}")
-        return None
+@lru_cache(maxsize=1)
+def load_model(path: Path | None = None):
+    path = Path(path) if path else resolve_model_path()
+    return joblib.load(path)

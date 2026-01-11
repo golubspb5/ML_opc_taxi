@@ -1,3 +1,6 @@
+#image: python:3.12-slim
+
+
 stages:
   - lint
   - test
@@ -36,6 +39,7 @@ test_smoke:
     - python3 -m venv .venv
     - .venv/bin/pip install --upgrade pip
     - .venv/bin/pip install -r requirements.txt pytest
+    - export PYTHONPATH="$CI_PROJECT_DIR"
   script:
     - .venv/bin/pytest -q tests/test_api_sanity.py
   only:
@@ -44,7 +48,7 @@ test_smoke:
 
 unit_tests:
   stage: test
-  needs: 
+  needs:
     - test_smoke   
   before_script:
     - python3 -m venv .venv
@@ -84,20 +88,33 @@ train_model:
 build_and_push:
   stage: build
   needs:
-    - train_model   
+    - train_model
+ # before_script:
+  #  - apt-get update
+   # - apt-get install -y docker.io
+ # image: docker:26.0.5-dind  # изменено: используем docker:dind для доступа к Docker
+  #services:
+ #   - docker:26.0.5-dind  # изменено: включаем docker daemon в контейнере
+ # variables:
+ #   DOCKER_HOST: tcp://docker:2375  # изменено: подключаемся к Docker daemon
+ #   DOCKER_TLS_CERTDIR: ""          # изменено: выключаем TLS для простоты
   script:
-    - echo "Building Docker image..."
-    - echo "IMAGE_NAME='$IMAGE_NAME'"
-    - echo "TAG='$CI_COMMIT_SHA'"
-
-    # логин в registry Gitflic
+    #- echo "Docker installed:"
+   # - docker --version
+  
+    - echo "Logging into registry..."
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" registry.gitflic.ru
 
-    # собираем и пушим образ
+    - echo "Building image..."
     - docker build -t "$IMAGE_NAME:$CI_COMMIT_SHA" .
+
+    - echo "Pushing..."
     - docker push "$IMAGE_NAME:$CI_COMMIT_SHA"
+
   only:
     - main
+
+
 
 integration_tests:
   stage: integration
